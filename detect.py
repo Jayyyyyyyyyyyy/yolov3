@@ -96,7 +96,7 @@ def run(weights=ROOT / 'yolov3.pt',  # model.pt path(s)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt and not jit) # auto is false in inference
         bs = len(dataset)  # batch_size
     else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit, single_channel=False)
+        dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt and not jit, single_channel=single_channel)
         bs = 1  # batch_size
     vid_path, vid_writer = [None] * bs, [None] * bs
 
@@ -120,28 +120,28 @@ def run(weights=ROOT / 'yolov3.pt',  # model.pt path(s)
         # Inference
         visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
         pred = model(im, augment=augment, visualize=visualize)
-        c = pred.detach().numpy().tolist()
-        for i in c[0]:
-            if i[4]*i[5]>0.87:
-                print(i)
+        # c = pred.detach().numpy().tolist()
+        # for i in c[0]:
+        #     if i[4]*i[5]>0.87:
+        #         print(i)
         t3 = time_sync()
         dt[1] += t3 - t2
 
         # NMS
 
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
-        tmp = pred[0]
-        b = tmp.detach().numpy().tolist()
-        # print(b)
-        myimg = cv2.imread("./letterbox_bug.jpg")
-        annotator = Annotator(myimg, line_width=line_thickness, example=str(names))
-        for *xyxy, conf, cls in reversed(b):
-            c = int(cls)  # integer class
-            label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-            annotator.box_label(xyxy, label, color=colors(c, True))
-        myimg = annotator.result()
-        cv2.imwrite('no_resize.jpg', myimg)
-        dt[2] += time_sync() - t3
+        # tmp = pred[0]
+        # b = tmp.detach().numpy().tolist()
+        # # print(b)
+        # myimg = cv2.imread("./letterbox_bug.jpg")
+        # annotator = Annotator(myimg, line_width=line_thickness, example=str(names))
+        # for *xyxy, conf, cls in reversed(b):
+        #     c = int(cls)  # integer class
+        #     label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+        #     annotator.box_label(xyxy, label, color=colors(c, True))
+        # myimg = annotator.result()
+        # cv2.imwrite('no_resize.jpg', myimg)
+        # dt[2] += time_sync() - t3
 
         # Second-stage classifier (optional)
         # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
