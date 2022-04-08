@@ -5,9 +5,10 @@ nc: 1  # number of classes
 depth_multiple: 1.0  # model depth multiple
 width_multiple: 1.0  # layer channel multiple
 anchors:
-  - [46,113, 54,166, 87,179]  # P3/8
-  - [95,192, 115,219, 168,239]  # P4/16
-
+#  - [46,113, 54,166, 87,179]  # P3/8
+#  - [95,192, 115,219, 168,239]  # P4/16
+  - [38,84, 46,122, 73,176]  # P3/8
+  - [96,219, 104,220, 137,226]  # P4/16
 
 # YOLOv3-tiny backbone
 backbone:
