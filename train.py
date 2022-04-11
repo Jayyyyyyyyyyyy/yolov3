@@ -320,6 +320,10 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 if sf != 1:
                     ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
                     imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+            """
+            image plot
+            """
+            # save_image_tensor2cv2(imgs,"C:\\Users\\jiangchenxi\\Documents\\", targets)
 
             # Forward
             with amp.autocast(enabled=cuda):
@@ -489,6 +493,55 @@ def parse_opt(known=False):
 
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     return opt
+
+
+
+def save_image_tensor2cv2(input_tensors: torch.Tensor, filename, targets):
+    import cv2
+    from utils.plots import Annotator, colors, save_one_box
+    from utils.general import xywh2xyxy
+
+    """
+    将tensor保存为cv2格式
+    :param input_tensor: 要保存的tensor
+    :param filename: 保存的文件名
+    """
+    assert (len(input_tensors.shape) == 4 and input_tensors.shape[0] == 2 and len(targets.shape) == 2)
+    targets = targets.detach().numpy().tolist()
+    # 复制一份
+    input_tensors = input_tensors.clone().detach()
+    # 到cpu
+    input_tensors = input_tensors.to(torch.device('cpu'))
+    # 反归一化
+    # input_tensor = unnormalize(input_tensor)
+    # 去掉批次维度
+    for i in range(input_tensors.shape[0]):
+        input_tensor = input_tensors[i]
+        input_tensor = input_tensor.squeeze()
+        # 从[0,1]转化为[0,255]，再从CHW转为HWC，最后转为cv2
+        input_tensor = input_tensor.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).type(torch.uint8).numpy()
+        # RGB转BRG
+        input_tensor = cv2.cvtColor(input_tensor, cv2.COLOR_RGB2BGR)
+        cv2.imwrite("{}first{}.jpg".format(filename, i), input_tensor)
+
+        for target in targets:
+
+            if int(target[0]) == i:
+                annotator = Annotator(input_tensor, line_width=2)
+                x, y, w, h = target[2], target[3], target[4], target[5]
+                x1 = x - w/2
+                y1 = y - h/2
+                x2 = x + w/2
+                y2 = y + h/2
+                xyxy = [x1,y1,x2,y2]
+                xyxy = [i * 640 for i in xyxy]
+
+                label = str(target[1])
+                annotator.box_label(xyxy, label, color=colors(target[1], True))
+                input_tensor = annotator.result()
+                cv2.imwrite("{}{}.jpg".format(filename, i), input_tensor)
+
+
 
 
 def main(opt, callbacks=Callbacks()):

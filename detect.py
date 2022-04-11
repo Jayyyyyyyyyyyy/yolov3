@@ -120,10 +120,11 @@ def run(weights=ROOT / 'yolov3.pt',  # model.pt path(s)
         # Inference
         visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
         pred = model(im, augment=augment, visualize=visualize)
-        # c = pred.detach().numpy().tolist()
-        # for i in c[0]:
-        #     if i[4]*i[5]>0.87:
-        #         print(i)
+        c = pred.detach().numpy().tolist()
+        for i in c[0]:
+            if i[4]>0.60:
+                print(sum(i[5:]))
+                print(len(i),i[5:].index(max(i[5:])))
         t3 = time_sync()
         dt[1] += t3 - t2
 

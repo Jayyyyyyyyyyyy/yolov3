@@ -366,8 +366,8 @@ def img2label_paths(img_paths):
 class LoadImagesAndLabels(Dataset):
     #  train_loader/val_loader, loads images and labels for training and validation
     cache_version = 0.6  # dataset labels *.cache version
-
-    def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
+    # create_dataloader()中运行部分. __getitem__是在训练的时候才调用的
+    def  __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
                  cache_images=False, single_cls=False, stride=32, pad=0.0, prefix=''):
         self.img_size = img_size
         self.augment = augment
@@ -379,7 +379,11 @@ class LoadImagesAndLabels(Dataset):
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations() if augment else None
-
+        '''
+                下面这一步是为了查找路径(path)里面的所有图片,并将图片相对路径添加到列表f中
+                f:List  (N)      N代表总共有N张图片，存放着它们的相对路径
+                self.img_files:List   (N)   就是N张图片的相对路径,经过对 列表f中 图片路径进行处理(兼容windows\linux),并排序
+        '''
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -400,7 +404,11 @@ class LoadImagesAndLabels(Dataset):
             assert self.img_files, f'{prefix}No images found'
         except Exception as e:
             raise Exception(f'{prefix}Error loading data from {path}: {e}\nSee {HELP_URL}')
-
+            '''
+                    self.img_files:List (N)  装的是N张图片的相对路径
+                    self.label_files:List (N)  装的是N张图片对应的标签txt相对路径
+                    cache_path:  缓存文件，本质上是一个字典，(键为图片路径，对应的值为label，除此之外还有一些配置的内容,如results和hash)， 图片与对应label建立着关系的缓存文件
+            '''
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
@@ -410,7 +418,9 @@ class LoadImagesAndLabels(Dataset):
             assert cache['hash'] == get_hash(self.label_files + self.img_files)  # same hash
         except:
             cache, exists = self.cache_labels(cache_path, prefix), False  # cache
-
+        '''
+                   输出cache里面的相关信息
+           '''
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupted, total
         if exists:
@@ -420,6 +430,13 @@ class LoadImagesAndLabels(Dataset):
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
         assert nf > 0 or not augment, f'{prefix}No labels in {cache_path}. Can not train without labels. See {HELP_URL}'
 
+        '''
+               先将cache里面除图片和标签的内容 给去掉(如配置内容results,hash，先pop掉)
+               N张图的标签  self.labels：List (N*ndarray)  ndarray:(每张图的的target数,5)   5:c x y w h
+               N张图的形状  self.shapes:List (N*tuple)  tuple:(2)  2:w h 
+               N张图的路径  self.img_files:List (N)
+               N张图标签(txt)的路径 self.img_files:List (N)
+        '''
         # Read cache
         [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
         labels, shapes, self.segments = zip(*cache.values())
@@ -427,6 +444,13 @@ class LoadImagesAndLabels(Dataset):
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
+
+        '''
+            n：图片数量
+            bi：ndarray(N)  每张图片对应所属于的批次
+            nb: 批次数 = 总图片数量/batch_size
+
+        '''
         n = len(shapes)  # number of images
         bi = np.floor(np.arange(n) / batch_size).astype(np.int)  # batch index
         nb = bi[-1] + 1  # number of batches
@@ -448,9 +472,18 @@ class LoadImagesAndLabels(Dataset):
                 if segment:
                     self.segments[i][:, 0] = 0
 
+        '''
+            矩形训练
+        '''
         # Rectangular Training
         if self.rect:
             # Sort by aspect ratio
+            '''
+                首先根据高宽比排序，保证每个batch内的图像高宽比相近。
+                然后获得排序后的图片的索引irect
+                根据索引irect，对self.img_files, self.label_files, self.labels, self.shapes, ar进行同样的排序
+
+            '''
             s = self.shapes  # wh
             ar = s[:, 1] / s[:, 0]  # aspect ratio
             irect = ar.argsort()
@@ -461,16 +494,36 @@ class LoadImagesAndLabels(Dataset):
             ar = ar[irect]
 
             # Set training image shapes
+            '''
+                 bi：(N)   batch index
+                 i: 当前的批次      
+                 (bi==i) :(N) 为bool类型   
+                 ari: (batch_size)  当前批次i的所有的图片的aspect ratio
+                 mini: 最小高宽比
+                 maxi: 最大高宽比
+
+                 注意这边shapes是hw形式 ,前面self.shapes是wh形式
+
+                 当大于1的时候，使用1/mini,小于1的时候取maxi,这样子的话，使得它们(1/mini还是maxi)更加接近1.
+                 对当前batch下图片，其中一条边进行加边.但是每个batch的最终输入图片的尺寸是一样的,这样才能组成(N,C,H,W)的形式
+                 不同batch下的图片的尺寸可能是不一样的.由于空间金字塔池化的存在,不同输入大小的图片最终都可以通过模型,只要当前batch内
+                 图片大小一样就行了.
+
+                 这里的 self.batch_shapes 的就是后续和train.py中输入的参数 --img-size  起到同一个作用.
+                 如果使用矩形训练，那么使用 self.batch_shapes ,否者就使用 --img-size
+
+                 后续的__getitem__中,letterbox就是加边的操作,如果这里不明白的话，后续可能就会明白.
+             '''
             shapes = [[1, 1]] * nb
             for i in range(nb):
                 ari = ar[bi == i]
                 mini, maxi = ari.min(), ari.max()
                 if maxi < 1:
-                    shapes[i] = [maxi, 1]
+                    shapes[i] = [maxi, 1] # 如果宽比高大,那么宽不变，加边高即可, 高取这个batch中，最接近1的.
                 elif mini > 1:
-                    shapes[i] = [1, 1 / mini]
-
-            self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride
+                    shapes[i] = [1, 1 / mini] # 如果高比宽大，那么高固定不变,宽取这个batch图片中，最接近1的.
+                # 最后其实可以发现shapes中 hw都是小于等于1的. 这样就可以尽可能少加边,增快训练速度
+            self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(np.int) * stride #变换到原图的尺寸
 
         # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
         self.imgs, self.img_npy = [None] * n, [None] * n
@@ -554,9 +607,20 @@ class LoadImagesAndLabels(Dataset):
                 img, labels = mixup(img, labels, *load_mosaic(self, random.randint(0, self.n - 1)))
 
         else:
+            '''
+                 load_image是使用opencv读取的,所以img是BGR形式
+                 h0:原图的高
+                 w0:原图的宽
+                 根据self.img_size(即--img-size),将原图缩放,使得其中一条边等于--img-size,
+                 另外一条边小于--img-size
+                 从而得到缩放后的 h 和 w
+                 img 为 缩放后的 h 和 w
+             '''
             # Load image
             img, (h0, w0), (h, w) = load_image(self, index, hyp['single_channel'])
-
+            '''
+                选择shape,矩形训练使用新的形状,一般训练(正方形),使用--img-size
+            '''
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
@@ -573,7 +637,8 @@ class LoadImagesAndLabels(Dataset):
                                                  scale=hyp['scale'],
                                                  shear=hyp['shear'],
                                                  perspective=hyp['perspective'])
-
+        # cv2.imwrite('C:\\Users\\jiangchenxi\\Documents\\name_{}.jpg'.format(self.img_files[index].replace(os.sep, '-')),
+        #             img)
         nl = len(labels)  # number of labels
         if nl:
             labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
