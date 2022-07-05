@@ -1,6 +1,7 @@
 # YOLOv3 🚀 by Ultralytics, GPL-3.0 license
 
 # Parameters
+ch: 1
 nc: 1  # number of classes
 depth_multiple: 1.0  # model depth multiple
 width_multiple: 1.0  # layer channel multiple

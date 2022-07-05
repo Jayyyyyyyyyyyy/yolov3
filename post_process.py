@@ -11,6 +11,7 @@ Usage:
                                                              'https://youtu.be/Zgi9g1ksQHc'  # YouTube
                                                              'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
 """
+import time
 import numpy as np
 import cv2
 import torch
@@ -35,7 +36,7 @@ class LoadWebcam:
             raise StopIteration
         # Read frame
         ret_val, img0 = self.cap.read()
-
+        # img = cv2.resize(img0, self.img_size, interpolation=cv2.INTER_CUBIC)
         img = img0.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
         return img, img0
@@ -43,14 +44,14 @@ class LoadWebcam:
         return 0
 
 @torch.no_grad()
-def run(weights='./model/only_person.onnx',
+def run(weights='./model/yolov3-tiny.onnx',
         conf_thres=0.25,  # confidence threshold
         iou_thres=0.45,  # NMS IOU threshold
         max_det=1000,  # maximum detections per image
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=True,  # class-agnostic NMS
         line_thickness=3,  # bounding box thickness (pixels)
-        dnn=False,  # use OpenCV DNN for ONNX inference
+        dnn=True,  # use OpenCV DNN for ONNX inference
         ):
 
     # Load model
@@ -60,7 +61,10 @@ def run(weights='./model/only_person.onnx',
 
     # Dataloader
     dataset = LoadWebcam()
+    sum = 0
     for im, im0s in dataset:
+        if dataset.count>0 and dataset.count % 100==0:
+            print(sum/dataset.count)
         im = torch.from_numpy(im).float()
         im /= 255  # 0 - 255 to 0.0 - 1.0
         if len(im.shape) == 3:
@@ -68,8 +72,13 @@ def run(weights='./model/only_person.onnx',
         if len(im0s.shape) == 3:
             im0s = im0s[None]
         # Inference
+        t1 = time.time()
         pred = model(im)
-        print(pred.shape)
+        t2 = time.time()
+        infertime = round(t2-t1,2)
+        sum += infertime
+
+        # print("infer time is: {}".format(infertime))
         # NMS
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
@@ -83,7 +92,8 @@ def run(weights='./model/only_person.onnx',
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
                     c = int(cls)  # integer class
-                    label = f'{names[c]} {conf:.2f}'
+                    # label = f'{names[c]} {conf:.2f}'
+                    label = f'aaaaa'
                     annotator.box_label(xyxy, label, color=colors(c, True))
             im0 = annotator.result()
 

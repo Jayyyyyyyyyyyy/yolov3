@@ -735,6 +735,8 @@ def load_image(self, i, single_channel=False):
         if r != 1:  # if sizes are not equal
             im = cv2.resize(im, (int(w0 * r), int(h0 * r)),
                             interpolation=cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR)
+            if len(im.shape) != 3:
+                im = im[:, :, np.newaxis]
         return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
     else:
         return self.imgs[i], self.img_hw0[i], self.img_hw[i]  # im, hw_original, hw_resized

@@ -193,6 +193,7 @@ def export_tflite(keras_model, im, file, int8, data, ncalib, prefix=colorstr('Te
         batch_size, ch, *imgsz = list(im.shape)  # BCHW
         f = str(file).replace('.pt', '-fp16.tflite')
 
+
         converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
         converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
         converter.target_spec.supported_types = [tf.float16]
@@ -286,7 +287,7 @@ def run(data=ROOT / 'data/coco128.yaml',  # 'dataset.yaml path'
     # Input
     gs = int(max(model.stride))  # grid size (max stride)
     imgsz = [check_img_size(x, gs) for x in imgsz]  # verify img_size are gs-multiples
-    im = torch.zeros(batch_size, 3, *imgsz).to(device)  # image size(1,3,320,192) BCHW iDetection
+    im = torch.zeros(batch_size, 1, *imgsz).to(device)  # image size(1,3,320,192) BCHW iDetection
 
     # Update model
     if half:
@@ -347,7 +348,7 @@ def parse_opt():
     parser.add_argument('--int8', action='store_true', help='CoreML/TF INT8 quantization')
     parser.add_argument('--dynamic', action='store_true', help='ONNX/TF: dynamic axes')
     parser.add_argument('--simplify', action='store_true', help='ONNX: simplify model')
-    parser.add_argument('--opset', type=int, default=13, help='ONNX: opset version')
+    parser.add_argument('--opset', type=int, default=11, help='ONNX: opset version')
     parser.add_argument('--topk-per-class', type=int, default=100, help='TF.js NMS: topk per class to keep')
     parser.add_argument('--topk-all', type=int, default=100, help='TF.js NMS: topk for all classes to keep')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='TF.js NMS: IoU threshold')

@@ -107,33 +107,36 @@ def run(weights=ROOT / 'yolov3.pt',  # model.pt path(s)
         else:
             model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
     dt, seen = [0.0, 0.0, 0.0], 0
-    for path, im, im0s, vid_cap, s in dataset:
+    for path, _, im0s, vid_cap, s in dataset:
         t1 = time_sync()
-        im = torch.from_numpy(im).to(device)
-        im = im.half() if half else im.float()  # uint8 to fp16/32
-        im /= 255  # 0 - 255 to 0.0 - 1.0
-        if len(im.shape) == 3:
-            im = im[None]  # expand for batch dim
+        # im = torch.from_numpy(im).to(device)
+        # im = im.half() if half else im.float()  # uint8 to fp16/32
+        # im /= 255  # 0 - 255 to 0.0 - 1.0
+        # if len(im.shape) == 3:
+        #     im = im[None]  # expand for batch dim
         t2 = time_sync()
         dt[0] += t2 - t1
-
         # Inference
         visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
-        pred = model(im, augment=augment, visualize=visualize)
-        c = pred.detach().numpy().tolist()
-        for i in c[0]:
-            if i[4]>0.60:
-                print(sum(i[5:]))
-                print(len(i),i[5:].index(max(i[5:])))
+        import numpy as np
+        im = np.fromfile("input.tensor", sep='\n').reshape((1, 1, 240, 320))
+        im = torch.from_numpy(im).to(device)
+        im = im.half() if half else im.float()
+        # pred = model(im, augment=augment, visualize=visualize)
+        # pred.detach().numpy().tofile('output1.tensor', '\n')
+        # print(pred.shape)
+        # print(type(pred))
+        pred = np.fromfile("output.tensor", sep='\n').reshape((1,4500,6))
+        pred = torch.Tensor(pred)
         t3 = time_sync()
         dt[1] += t3 - t2
 
         # NMS
 
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
-        # tmp = pred[0]
-        # b = tmp.detach().numpy().tolist()
-        # # print(b)
+        tmp = pred[0][:5]
+        b = tmp.detach().numpy().tolist()
+        print(b)
         # myimg = cv2.imread("./letterbox_bug.jpg")
         # annotator = Annotator(myimg, line_width=line_thickness, example=str(names))
         # for *xyxy, conf, cls in reversed(b):

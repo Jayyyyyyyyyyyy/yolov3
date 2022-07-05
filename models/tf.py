@@ -268,6 +268,14 @@ class TFConcat(keras.layers.Layer):
     def call(self, inputs):
         return tf.concat(inputs, self.d)
 
+class TFMaxPool2d(keras.layers.Layer):
+    def __init__(self):
+        super().__init__()
+        self.max_pool_2d = keras.layers.MaxPool2D(pool_size=(2,2), strides=(1,1), padding='valid')
+
+    def call(self, inputs):
+        return self.max_pool_2d(inputs)
+
 
 def parse_model(d, ch, model, imgsz):  # model_dict, input_channels(3)
     LOGGER.info(f"\n{'':>3}{'from':>18}{'n':>3}{'params':>10}  {'module':<40}{'arguments':<30}")

@@ -33,11 +33,11 @@ except ImportError:
     thop = None
 
 
-class Detect(nn.Module):
+class Detect(nn.Module): # 自定义输出模块
     stride = None  # strides computed during build
     onnx_dynamic = False  # ONNX export parameter
 
-    def __init__(self, nc=80, anchors=(), ch=(), inplace=True):  # detection layer
+    def __init__(self, nc=80, anchors=(), ch=(), inplace=False):  # detection layer
         super().__init__()
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
@@ -53,8 +53,8 @@ class Detect(nn.Module):
         z = []  # inference output
         for i in range(self.nl): # [0,1]
             x[i] = self.m[i](x[i])  # conv
-            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-            x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
+            bs, _, ny, nx = x[i].shape
+            x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()  # x(bs,255,20,20) to x(bs,3,20,20,85)
 
             if not self.training:  # inference
                 if self.onnx_dynamic or self.grid[i].shape[2:4] != x[i].shape[2:4]:
@@ -65,9 +65,12 @@ class Detect(nn.Module):
                     y[..., 0:2] = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy # 还原到原图大小 向前推理时候
                     y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 else:  # for  on AWS Inferentia https://github.com/ultralytics/yolov5/pull/2953
-                    xy = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
-                    wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
-                    y = torch.cat((xy, wh, y[..., 4:]), -1)
+                    # xy = (y[..., 0:2] * 2 - 0.5 + self.grid[i]) * self.stride[i]  # xy
+                    # wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                    # y = torch.cat((xy, wh, y[..., 4:]), -1)
+                    xy = (torch.index_select(y, -1,  torch.tensor([0, 1])) * torch.tensor(2) - torch.tensor(0.5) + torch.tensor(self.grid[i])) * self.stride[i]  # xy
+                    wh = (torch.index_select(y, -1,  torch.tensor([2, 3])) * 2) ** 2 * self.anchor_grid[i]  # wh
+                    y = torch.cat((xy, wh, torch.index_select(y, -1,  torch.tensor([4, 5]))), -1)
                 z.append(y.view(bs, -1, self.no))
 
         return x if self.training else (torch.cat(z, 1), x)
@@ -84,7 +87,8 @@ class Detect(nn.Module):
         return grid, anchor_grid
 
 
-class Model(nn.Module):
+class Model(nn.Module): # 模型构建
+    # 模型在init()就已经通过配置文件全部构建了
     def __init__(self, cfg='yolov3.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
         super().__init__()
         if isinstance(cfg, dict):
@@ -106,14 +110,15 @@ class Model(nn.Module):
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         self.inplace = self.yaml.get('inplace', True)
+        # print([640 / x.shape[-2] for x in self.forward(torch.zeros(1, ch, 640, 640))])
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
             s = 256  # 2x min stride
             m.inplace = self.inplace
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
-            m.anchors /= m.stride.view(-1, 1, 1)
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward # 计算 stride
+            m.anchors /= m.stride.view(-1, 1, 1) # anchor 除以对应的 stride
             check_anchor_order(m)
             self.stride = m.stride
             self._initialize_biases()  # only run once
@@ -265,9 +270,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv,
-                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost]:
-            c1, c2 = ch[f], args[0]
+        if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, C3TR, C3SPP, C3Ghost]:
+            c1, c2 = ch[f], args[0] # 当前模块的输入维度和输出维度 channel in, channel out
             if c2 != no:  # if not output
                 c2 = make_divisible(c2 * gw, 8)
 
@@ -291,7 +295,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             c2 = ch[f]
 
         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
-        t = str(m)[8:-2].replace('__main__.', '')  # module type
+        t = str(m)[8:-2].replace('__main__.', '')  # module type #输出 可视化结果
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
         LOGGER.info(f'{i:>3}{str(f):>18}{n_:>3}{np:10.0f}  {t:<40}{str(args):<30}')  # print
@@ -305,7 +309,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='yolov3yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='yolov3-tiny.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     parser.add_argument('--test', action='store_true', help='test all yolo*.yaml')
